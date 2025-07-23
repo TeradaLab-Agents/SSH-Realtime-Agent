@@ -74,7 +74,7 @@ document.addEventListener("DOMContentLoaded", () => {
     //
     // バックエンドの URL とエンドポイントを定義
     // ---------------------------------------------------------------------
-    const BACKEND_URL = "http://127.0.0.1:5500/";
+    const BACKEND_URL = "http://127.0.0.1:8000";
     const PROXY_ENDPOINT = `${BACKEND_URL}/api/realtime-proxy`;
     const WEBSOCKET_ENDPOINT = `${BACKEND_URL.replace("http", "ws")}/ws/function-call`;
 
