@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+httpx
+websockets
+pydantic
+pandas
+numpy
+tqdm
+openai
+scikit-learn
+openpyxl
