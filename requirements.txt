@@ -9,3 +9,4 @@ tqdm
 openai
 scikit-learn
 openpyxl
+python-dotenv

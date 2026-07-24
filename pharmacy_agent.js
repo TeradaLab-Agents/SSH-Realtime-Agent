@@ -337,7 +337,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     // ➋ モデル応答（全文）受信完了
                     case "response.done": {
-                        const transcript = msg?.response?.output?.[0]?.content?.[0]?.transcript ?? "";
+                        const output = msg?.response?.output ?? [];
+                        // 関数呼び出しを含むレスポンスは「本題に入る前の前置き」なので吹き出し表示しない
+                        // （関数実行後に response.create で送られる最終応答のみを表示する）
+                        const hasFunctionCall = output.some((item) => item.type === "function_call");
+                        if (hasFunctionCall) break;
+                        const transcript = output[0]?.content?.[0]?.transcript ?? "";
                         if (transcript) setTimeout(() => addBubble(transcript, false), 800);
                         break;
                     }

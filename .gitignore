@@ -1,2 +1,4 @@
-__pycache__/server_no-rag-function.cpython-312.pyc
-__pycache__/server_original.cpython-312.pyc
+__pycache__/
+.env
+tmp/
+venv/
