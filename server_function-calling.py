@@ -8,6 +8,7 @@ import os
 import httpx
 import logging
 import json
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,11 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 from openpyxl.styles import Alignment
 from openpyxl import load_workbook
+
+# ------------------------------------------------------------------
+# 0. .env ファイルから環境変数を読み込む（OPENAI_API_KEY など）
+# ------------------------------------------------------------------
+load_dotenv()
 
 # ------------------------------------------------------------------
 # 1. ロギング設定
@@ -77,6 +83,7 @@ system_prompt = """
 - 回答は必ず`appRAG`関数で得た情報のみに基づき、自己の知識や推測は使用禁止です。
 - `appRAG`で情報が見つからない場合、「考え中です。」と回答してください。
 - 医療相談や診断に関する質問には、決して自分で判断せず、次の通りに回答し電話を促してください：「その件については専門の薬剤師が直接ご説明しますので、お手数ですがお電話ください。」
+- `appRAG`関数を呼び出す必要がある場合は、呼び出す前に絶対に何も話さないでください。前置きの発言は禁止です。関数の実行結果を受け取ってから、初めて回答してください。
 """
 
 # ------------------------------------------------------------------
@@ -94,44 +101,52 @@ async def realtime_proxy(request: Request):
 
         # 2) OpenAI Realtime セッション確立 & SDP 交換
         async with httpx.AsyncClient() as client:
-            # 2-1) Ephemeral Key 取得: /v1/realtime/sessions
-            # https://note.com/npaka/n/nf9cab7ea954e
-            # https://platform.openai.com/docs/api-reference/realtime-sessions/create
+            # 2-1) Ephemeral Key 取得: /v1/realtime/client_secrets
+            #    2026年6月頃に旧beta版 /v1/realtime/sessions が廃止され、GA版のこのエンドポイントに移行。
+            #    セッション設定は "session" オブジェクトにネストし、音声関連設定は "audio.input" / "audio.output" 配下に移動。
+            # https://platform.openai.com/docs/guides/realtime-webrtc
             ephemeral_resp = await client.post(
-                "https://api.openai.com/v1/realtime/sessions",
+                "https://api.openai.com/v1/realtime/client_secrets",
                 headers={
                     "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
-                    "OpenAI-Beta": "realtime=v1",
                 },
                 json={
-                    "model": "gpt-4o-mini-realtime-preview-2024-12-17",
-                    "instructions": system_prompt,
-                    "voice": "shimmer",
-                    "input_audio_transcription": {
-                        "model": "whisper-1",
-                        "language": "ja",
+                    "session": {
+                        "type": "realtime",
+                        "model": "gpt-realtime-2.1-mini",
+                        "instructions": system_prompt,
+                        "audio": {
+                            "input": {
+                                "transcription": {
+                                    "model": "whisper-1",
+                                    "language": "ja",
+                                },
+                                "turn_detection": {
+                                    "type": "server_vad",
+                                    "create_response": True,
+                                    "threshold": 0.8,
+                                    "silence_duration_ms": 1000,
+                                },
+                            },
+                            "output": {
+                                "voice": "shimmer",
+                            },
+                        },
+                        "tools": [tool_app_rag],
+                        "max_output_tokens": 1000,
                     },
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "create_response": True,
-                        "threshold": 0.8,
-                        "silence_duration_ms": 1000,
-                    },
-                    "tools": [tool_app_rag],
-                    "temperature": 0.8,
-                    "max_response_output_tokens": 500,
                 },
                 timeout=10,
             )
             ephemeral_resp.raise_for_status()
-            ephemeral_key = ephemeral_resp.json().get("client_secret", {}).get("value") # エフェメラルキー(client_secret)を JSON から抽出
+            ephemeral_key = ephemeral_resp.json().get("value") # エフェメラルキーはレスポンス直下の "value"
             if not ephemeral_key: # キーが存在しない場合は 500 を返して処理を中断
                 raise HTTPException(status_code=500, detail="No ephemeral key in response")
             logging.info("Successfully received ephemeral key.")
 
-            # 2-2) Offer SDP を送信し Answer SDP 取得
+            # 2-2) Offer SDP を送信し Answer SDP 取得（SDP交換エンドポイントも /v1/realtime/calls に変更）
             sdp_resp = await client.post(
-                "https://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17",
+                "https://api.openai.com/v1/realtime/calls",
                 headers={
                     "Authorization": f"Bearer {ephemeral_key}",
                     "Content-Type": "application/sdp",
